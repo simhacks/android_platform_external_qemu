@@ -1432,6 +1432,11 @@ handleSIM_IO( const char*  cmd, AModem  modem )
     return asimcard_io( modem->sim, cmd );
 }
 
+static const char*
+handleSIM_APDU( const char*  cmd, AModem  modem )
+{
+    return asimcard_cmd( modem->sim, cmd );
+}
 
 static const char*
 handleOperatorSelection( const char*  cmd, AModem  modem )
@@ -1825,7 +1830,7 @@ handleChangeOrEnterPIN( const char*  cmd, AModem  modem )
                     return "+CPIN: READY";
                 }
             }
-            break;
+            //break;
 
         case A_SIM_STATUS_PIN:   /* waiting for PIN */
             if ( asimcard_check_pin( modem->sim, cmd ) )
@@ -2427,6 +2432,11 @@ static const struct {
 
     /* see requestSIM_IO() */
     { "!+CRSM=", NULL, handleSIM_IO },
+    { "!+CSIM=", NULL, handleSIM_APDU },
+    { "!+CGLA=", NULL, handleSIM_APDU },
+    { "!+CCHO=", NULL, handleSIM_APDU },
+    { "!+CCHC=", NULL, handleSIM_APDU },
+
 
     /* see onRequest() */
     { "+CHLD=0", NULL, handleHangup },

@@ -139,6 +139,7 @@ LOCAL_SRC_FILES += $(common_LOCAL_SRC_FILES)
 $(call gen-hw-config-defs)
 $(call end-emulator-library)
 
+
 ## another for 64-bit
 # NOTE: only linux and darwin in non-standalone mode is supported, because
 #  1) For Windows: amd64-mingw32msvc-gcc doesn't work, see http://b/issue?id=5949152.
@@ -579,6 +580,7 @@ endif
 common_LOCAL_CFLAGS += $(EMULATOR_LIBQEMU_CFLAGS)
 
 
+
 ## one for 32-bit
 $(call start-emulator-library, emulator-libqemu)
 # gdbstub-xml.c contains C-compilable arrays corresponding to the content
@@ -593,7 +595,7 @@ $(QEMU_GDBSTUB_XML_C): $(QEMU_TARGET_XML_SOURCES) $(LOCAL_PATH)/feature_to_c.sh
 	$(hide) rm -f $@
 	$(transform-generated-source)
 LOCAL_GENERATED_SOURCES += $(QEMU_GDBSTUB_XML_C)
-LOCAL_CFLAGS += $(common_LOCAL_CFLAGS) -I$(intermediates)
+LOCAL_CFLAGS += $(common_LOCAL_CFLAGS) -I$(intermediates) -DENABLE_PCSC -I$(PCSC_INCPATH)
 LOCAL_SRC_FILES += $(common_LOCAL_SRC_FILES)
 $(call gen-hw-config-defs)
 $(call end-emulator-library)
@@ -615,7 +617,7 @@ ifneq ($(filter linux darwin,$(HOST_OS)),)
 	$(hide) rm -f $@
 	$(transform-generated-source)
     LOCAL_GENERATED_SOURCES += $(QEMU_GDBSTUB_XML_C)
-    LOCAL_CFLAGS += $(common_LOCAL_CFLAGS) -I$(intermediates) -m64
+    LOCAL_CFLAGS += $(common_LOCAL_CFLAGS) -I$(intermediates) -m64 -DENABLE_PCSC -I$(PCSC_INCPATH)
     LOCAL_SRC_FILES += $(common_LOCAL_SRC_FILES)
     $(call gen-hw-config-defs)
     $(call end-emulator-library)

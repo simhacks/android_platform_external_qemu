@@ -3,6 +3,11 @@ ifneq ($(filter true% %true,$(BUILD_EMULATOR)$(BUILD_STANDALONE_EMULATOR)),)
 ifneq (,$(filter $(TARGET_ARCH),arm x86 mips))
 LOCAL_PATH:= $(call my-dir)
 
+ifneq ($(PCSC_INCPATH),)
+    $(shell touch $(LOCAL_PATH)/telephony/sim_card.c)
+    $(shell touch $(LOCAL_PATH)/android/cmdline-option.c)
+endif
+
 # determine the target cpu
 ifeq ($(TARGET_ARCH),arm)
 EMULATOR_TARGET_CPU := target-arm
@@ -91,6 +96,7 @@ ifeq ($(HOST_OS),windows)
         GCC_W_NO_MISSING_FIELD_INITIALIZERS :=
     endif
 endif
+
 
 # BUILD_STANDALONE_EMULATOR is only defined when building with
 # the android-rebuild.sh script. The script will also provide
@@ -289,10 +295,10 @@ LOCAL_STATIC_LIBRARIES := \
     emulator-libui \
     emulator-common \
 
-LOCAL_CFLAGS += -DCONFIG_STANDALONE_UI=1
+LOCAL_CFLAGS += -DCONFIG_STANDALONE_UI=1 -DENABLE_PCSC -I$(PCSC_INCPATH)
 
 LOCAL_CFLAGS += $(EMULATOR_COMMON_CFLAGS) $(EMULATOR_LIBUI_CFLAGS)
-LOCAL_LDLIBS += $(EMULATOR_COMMON_LDLIBS) $(EMULATOR_LIBUI_LDLIBS)
+LOCAL_LDLIBS += $(EMULATOR_COMMON_LDLIBS) $(EMULATOR_LIBUI_LDLIBS) -L$(PCSC32_LIBPATH) -lpcsclite
 
 LOCAL_SRC_FILES := \
     android/cmdline-option.c \

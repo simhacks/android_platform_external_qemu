@@ -78,6 +78,11 @@
 #define MMC_APP_CMD              55   /* ac   [31:16] RCA        R1  */
 #define MMC_GEN_CMD              56   /* adtc [0] RD/WR          R1  */
 
+#define MMC_ASSD_READ_SEC             34   /* ### */
+#define MMC_ASSD_WRITE_SEC            35   /* ### */
+#define MMC_ASSD_SEND_PSI             36   /* ### */
+#define MMC_ASSD_CONTROL_ASSD_SYSTEM  37   /* ### */
+
 /*
  * MMC_SWITCH argument format:
  *

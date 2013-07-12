@@ -14,6 +14,9 @@
 #include "mmc.h"
 #include "sd.h"
 #include "block.h"
+#include <sys/ioctl.h>
+#include "assd.h"
+
 
 enum {
     /* status register */
@@ -78,6 +81,10 @@ struct goldfish_mmc_state {
     uint32_t block_length;
     uint32_t block_count;
     int is_SDHC;
+
+    int assd_fd;
+    uint8_t *assd_buffer;
+    int assd_state;
 
     uint8_t* buf;
 };
@@ -169,6 +176,21 @@ static const char* get_command_name(int command)
     return opcode->name;
 }
 #endif
+
+ #define DEBUG_ASSD 1
+ #if DEBUG_ASSD
+ static void printStderrHexBuffer(uint8_t *buffer)
+ {
+ 	int i,n;
+     n = ((buffer[0]<<8) | buffer[1]);
+     if (n > 512) n = 512;
+     n -= 2;
+     if (n <= 0) return;
+     fprintf(stderr, "%02X", 0xff & buffer[2]);
+     for(i=1; i<n; i++)
+         fprintf(stderr, " %02X", 0xff & buffer[2+i]);
+ }
+ #endif
 
 static int  goldfish_mmc_bdrv_read(struct goldfish_mmc_state *s,
                                    int64_t                    sector_number,
@@ -345,15 +367,37 @@ static void goldfish_mmc_do_command(struct goldfish_mmc_state *s, uint32_t cmd, 
             break;
 
          case MMC_SWITCH:
-            if (arg == 0x00FFFFF1 || arg == 0x80FFFFF1) {
-                uint8_t  buff0[64];
-                memset(buff0, 0, sizeof buff0);
-                buff0[13] = 2;
-                cpu_physical_memory_write(s->buffer_address, buff0, sizeof buff0);
-                new_status |= MMC_STAT_END_OF_DATA;
-            }
+	 {
+	     uint8_t buff0[64];
+	     uint32_t maskedArg;
+ 
+             maskedArg = 0x7fffffff & arg;
+ 
+             if (s->assd_fd == 0) {
+             	// no ASSD available:
+                fprintf(stderr, "goldfish_mmc: no ASSD available\n");
+             	if (maskedArg == 0x00FFFFF1) {
+ 	    	    memset(buff0, 0, sizeof buff0);
+ 		    buff0[13] = 2;
+ 		    cpu_physical_memory_write(s->buffer_address, buff0, sizeof buff0);
+ 		    new_status |= MMC_STAT_END_OF_DATA;
+ 		}
+             } else {
+             	// ASSD available:
+                fprintf(stderr, "goldfish_mmc: ASSD available\n");
+ 		if (maskedArg == 0x00FFFFF1 || maskedArg==0x00FFFF1F) {
+ 		    memset(buff0, 0, sizeof buff0);
+ 		    buff0[11] = 2;    // function=1 supported in function group 2
+ 		    buff0[13] = 2;
+ 		    buff0[16] = 0x10; // can switch to function 1 in function group 2
+ 		    cpu_physical_memory_write(s->buffer_address, buff0, sizeof buff0);
+ 		    new_status |= MMC_STAT_END_OF_DATA;
+ 		}
+              }
+
             s->resp[0] = SET_R1_CURRENT_STATE(4) | R1_READY_FOR_DATA | R1_APP_CMD; //2336
             break;
+         }
 
          case MMC_SET_BLOCKLEN:
             s->block_length = arg;
@@ -403,7 +447,51 @@ static void goldfish_mmc_do_command(struct goldfish_mmc_state *s, uint32_t cmd, 
         case MMC_SEND_STATUS:
             s->resp[0] = SET_R1_CURRENT_STATE(4) | R1_READY_FOR_DATA; // 2304
             break;
-     }
+
+        case MMC_ASSD_READ_SEC:
+            if (s->assd_fd==0) break;
+            cpu_physical_memory_write(s->buffer_address, s->assd_buffer, 512);
+            s->assd_state = 0;
+ 
+            new_status |= MMC_STAT_END_OF_DATA;
+            s->resp[0] = SET_R1_CURRENT_STATE(4) | R1_READY_FOR_DATA; // 2304
+            break;
+ 
+        case MMC_ASSD_WRITE_SEC:
+            if (s->assd_fd==0) break;
+            cpu_physical_memory_read(s->buffer_address, s->assd_buffer, 512);
+ #if DEBUG_ASSD
+ //	    { int i; fprintf(stderr, "goldfish_mmc: ASSD  b:"); for (i=0; i<5; i++)fprintf(stderr, " %02X", 0xff & s->assd_buffer[i]); fprintf(stderr, "...\n"); }
+      	    fprintf(stderr, "goldfish_mmc: ASSD       --> "); printStderrHexBuffer(s->assd_buffer); fprintf(stderr, "\n");
+ #endif
+            if (ioctl(s->assd_fd, ASSD_IOC_TRANSCEIVE, s->assd_buffer)) {
+                fprintf(stderr, "goldfish_mmc: Error: failed to transmit/receive ASSD command/response\n");
+             	s->assd_buffer[0] = 0;
+             	s->assd_buffer[1] = 0;
+            }
+ #if DEBUG_ASSD
+            fprintf(stderr, "goldfish_mmc: ASSD       <-- "); printStderrHexBuffer(s->assd_buffer); fprintf(stderr, "\n");
+ #endif
+            s->assd_state = 2;
+ 
+            new_status |= MMC_STAT_END_OF_DATA;
+            s->resp[0] = SET_R1_CURRENT_STATE(4) | R1_READY_FOR_DATA; // 2304
+            break;
+ 
+         case MMC_ASSD_SEND_PSI:
+ 			memset(s->buf, 0, 512);
+ 			s->buf[0] = s->assd_state;
+         	cpu_physical_memory_write(s->buffer_address, s->buf, 512);
+ 
+             new_status |= MMC_STAT_END_OF_DATA;
+             s->resp[0] = SET_R1_CURRENT_STATE(4) | R1_READY_FOR_DATA; // 2304
+          	break;
+ 
+         case MMC_ASSD_CONTROL_ASSD_SYSTEM:
+             new_status |= MMC_STAT_END_OF_DATA;
+             s->resp[0] = SET_R1_CURRENT_STATE(4) | R1_READY_FOR_DATA; // 2304
+          	break;
+    }
 
     s->int_status |= new_status;
 
@@ -499,6 +587,32 @@ static CPUWriteMemoryFunc *goldfish_mmc_writefn[] = {
    goldfish_mmc_write
 };
 
+void goldfish_assd_init(struct goldfish_mmc_state *s)
+{
+    s->assd_fd = open("/dev/assd", O_RDWR);
+    if (s->assd_fd < 0) {
+        fprintf(stderr, "goldfish_mmc: Warning: failed to open /dev/assd\n");
+ 	s->assd_fd = 0;
+ 	return;
+    }
+ 	if (ioctl(s->assd_fd, ASSD_IOC_ENABLE)) {
+ 		fprintf(stderr, "goldfish_mmc: Info: failed to enable ASSD\n");
+ 		close(s->assd_fd);
+ 		s->assd_fd = 0;
+ 		return;
+ 	}
+ 	s->assd_buffer = (uint8_t*)malloc(512);
+ 	if (s->assd_buffer == NULL) {
+ 		fprintf(stderr, "goldfish_mmc: Error: failed to allocate ASSD buffer\n");
+ 		close(s->assd_fd);
+ 		s->assd_fd = 0;
+ 		return;
+ 	}
+     s->assd_state = 0;
+ 	fprintf(stderr, "goldfish_mmc: ASSD is ready\n");
+     return;
+ }
+
 void goldfish_mmc_init(uint32_t base, int id, BlockDriverState* bs)
 {
     struct goldfish_mmc_state *s;
@@ -512,6 +626,7 @@ void goldfish_mmc_init(uint32_t base, int id, BlockDriverState* bs)
     s->bs = bs;
     s->buf = qemu_memalign(512,512);
 
+    goldfish_assd_init(s);
     goldfish_device_add(&s->dev, goldfish_mmc_readfn, goldfish_mmc_writefn, s);
 
     register_savevm( "goldfish_mmc", 0, GOLDFISH_MMC_SAVE_VERSION,
